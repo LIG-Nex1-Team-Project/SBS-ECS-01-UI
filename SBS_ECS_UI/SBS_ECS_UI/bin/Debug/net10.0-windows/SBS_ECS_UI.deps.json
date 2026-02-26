@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "SBS_ECS_UI/1.0.0": {
+        "runtime": {
+          "SBS_ECS_UI.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "SBS_ECS_UI/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}
