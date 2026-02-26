@@ -1,8 +1,10 @@
 {
   "version": 2,
-  "dgSpecHash": "CiTMLM7v61g=",
+  "dgSpecHash": "prEi8rpr0rc=",
   "success": true,
-  "projectFilePath": "C:\\Users\\SeungMin\\source\\repos\\SBS-ECS-01-UI\\SBS_ECS_UI\\SBS_ECS_UI\\SBS_ECS_UI.csproj",
-  "expectedPackageFiles": [],
+  "projectFilePath": "C:\\Git\\SBS-ECS-01-UI\\SBS_ECS_UI\\SBS_ECS_UI\\SBS_ECS_UI.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\한국전파진흥협회\\.nuget\\packages\\communitytoolkit.mvvm\\8.4.0\\communitytoolkit.mvvm.8.4.0.nupkg.sha512"
+  ],
   "logs": []
 }
