@@ -1,0 +1,22 @@
+﻿<Window x:Class="SBS_ECS_UI.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="로그인" Height="250" Width="400" Background="White">
+
+    <Grid Margin="20">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="비밀번호를 입력하세요" FontSize="18" Margin="0,0,0,20" HorizontalAlignment="Center"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBox Text="{Binding Password}" Width="150" Height="30" VerticalContentAlignment="Center" Margin="5"/>
+                <Button Content="입력" Command="{Binding LoginCommand}" Width="60" Height="30" Margin="5"/>
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Margin="0,20,0,0" HorizontalAlignment="Center">
+                <TextBlock Text="틀린 횟수 : " FontSize="14"/>
+                <TextBlock Text="{Binding FailedCount}" FontSize="14" FontWeight="Bold" Foreground="Red"/>
+                <TextBlock Text="번" FontSize="14"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>
