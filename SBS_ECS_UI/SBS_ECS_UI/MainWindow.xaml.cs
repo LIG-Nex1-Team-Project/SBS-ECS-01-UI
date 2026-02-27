@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using SBS_ECS_UI.ViewModels;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -19,6 +20,11 @@ namespace SBS_ECS_UI
         public MainWindow()
         {
             InitializeComponent();
+            // 💡 ViewModel의 메시지 요청 이벤트를 실제 창으로 연결 (Strict MVVM)
+            if (this.DataContext is MainViewModel vm)
+            {
+                vm.MessageRequest += (msg) => MessageBox.Show(this, msg, "시스템 알림");
+            }
         }
     }
 }
