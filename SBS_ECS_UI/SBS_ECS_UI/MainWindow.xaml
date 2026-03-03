@@ -49,6 +49,23 @@
                 <StackPanel Grid.Row="0">
                     <TextBlock Text="[ 시스템 제어 ]" Foreground="White" FontSize="18" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,10"/>
                     <TextBlock Text="{Binding ConnectionStatus}" Foreground="Yellow" FontSize="12" Margin="0,0,0,15" HorizontalAlignment="Center"/>
+
+                    <UniformGrid Columns="2" Margin="0,0,0,15">
+                        <Button Content="▶ 탐색 시작" Command="{Binding StartSeekerCommand}" Background="#004400" Foreground="White" Height="30" Margin="0,0,5,0"/>
+                        <Button Content="■ 탐색 정지" Command="{Binding StopSeekerCommand}" Background="#440000" Foreground="White" Height="30" Margin="5,0,0,0"/>
+                    </UniformGrid>
+
+                    <Button Content="🚨 긴급 정지" Command="{Binding EmergencyStopCommand}" 
+                            Background="#FF0000" Foreground="White" FontSize="16" FontWeight="Bold" Height="40" Margin="0,0,0,15">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="5" BorderBrush="DarkRed" BorderThickness="2">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+
                     <TextBlock Text="전시 스케일 (px/cm)" Foreground="LightGray" FontSize="13" Margin="0,5,0,5"/>
                     <DockPanel Margin="0,0,0,15">
                         <TextBlock Text="{Binding PxPerCm, StringFormat={}{0:F1}}" Foreground="White" Width="30" DockPanel.Dock="Right" TextAlignment="Right"/>
@@ -74,14 +91,17 @@
                         <ListBox ItemsSource="{Binding EnemyList}" Background="Transparent" BorderThickness="0">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Grid Margin="2">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="80"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Text="{Binding Name}" Foreground="Lime" FontWeight="Bold"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding StringFormat=X: {0:F0} Y: {1:F0}, Path=PosX_mm}" Foreground="White" FontSize="11"/>
-                                    </Grid>
+                                    <StackPanel Margin="0,5,0,10">
+                                        <TextBlock Text="{Binding Name}" Foreground="#FF4444" FontSize="15" FontWeight="Bold"/>
+
+                                        <StackPanel Orientation="Horizontal" Margin="2,3,0,0">
+                                            <TextBlock Text="DIST: " Foreground="Gray" FontSize="11" VerticalAlignment="Bottom"/>
+                                            <TextBlock Text="{Binding Distance, StringFormat={}{0:F1} mm}" Foreground="Yellow" FontSize="12" Margin="0,0,12,0"/>
+
+                                            <TextBlock Text="AZIM: " Foreground="Gray" FontSize="11" VerticalAlignment="Bottom"/>
+                                            <TextBlock Text="{Binding AzimuthDegree, StringFormat={}{0:F1}°}" Foreground="Cyan" FontSize="12"/>
+                                        </StackPanel>
+                                    </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -90,6 +110,16 @@
 
                 <StackPanel Grid.Row="3" Margin="0,15,0,0">
                     <CheckBox Content="이중 안전장치 해제" IsChecked="{Binding IsDoubleSafetyChecked}" Foreground="White" Margin="0,0,0,10"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,10">
+                        <Ellipse Width="12" Height="12" Fill="{Binding StatusColor}" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <Ellipse.Effect>
+                                <DropShadowEffect Color="White" BlurRadius="5" ShadowDepth="0"/>
+                            </Ellipse.Effect>
+                        </Ellipse>
+                        <TextBlock Text="발사대 상태: " Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding LauncherStatusText}" Foreground="{Binding StatusColor}" 
+               FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </StackPanel>
                     <Button Content="사격 승인 (FIRE)" Command="{Binding FireCommand}" Background="#600" Foreground="White" Height="50" FontSize="18" FontWeight="Bold"/>
                 </StackPanel>
             </Grid>
