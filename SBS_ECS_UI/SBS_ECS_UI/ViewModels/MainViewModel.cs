@@ -11,6 +11,7 @@ namespace SBS_ECS_UI.ViewModels
     public class MainViewModel : ViewModelBase
     {
         private UartManager _uart;
+        //private MockUartManager _uart;
         private CoordinateTransformer _transformer = new CoordinateTransformer();
 
         // 실시간 표적 정보
@@ -20,10 +21,24 @@ namespace SBS_ECS_UI.ViewModels
         // 적 목록 (Enemy List) 컬렉션
         public ObservableCollection<TargetInfo> EnemyList { get; } = new ObservableCollection<TargetInfo>();
 
-        private bool _isDoubleSafetyChecked;
-        public bool IsDoubleSafetyChecked { get => _isDoubleSafetyChecked; set { _isDoubleSafetyChecked = value; onPropertyChanged(); } }
+        private string _currentStatus = "stanby";
 
-        // 위험 반경 진입 여부 (화면 전시용)
+        private bool _isDoubleSafetyChecked;
+        public bool IsDoubleSafetyChecked
+        {
+            get => _isDoubleSafetyChecked;
+            set
+            {
+                _isDoubleSafetyChecked = value;
+                onPropertyChanged();
+                onPropertyChanged(nameof(CanFire));
+            }
+        }
+
+        public bool CanAlign => _currentStatus == "stanby" || _currentStatus == "align";
+        public bool CanFire => _currentStatus == "align" && IsDoubleSafetyChecked;
+
+        // 위험 반경 진입 여부
         private bool _isDanger;
         public bool IsDanger { get => _isDanger; set { _isDanger = value; onPropertyChanged(); } }
 
@@ -33,21 +48,38 @@ namespace SBS_ECS_UI.ViewModels
         private double _pxPerCm = 1.0;
         public double PxPerCm { get => _pxPerCm; set { _pxPerCm = value; onPropertyChanged(); UpdatePixelCoordinates(); } }
 
+        // 화면 좌표 프로퍼티
         private double _targetX_px;
         private double _targetY_px;
         public double TargetX_px { get => _targetX_px; set { _targetX_px = value; onPropertyChanged(); } }
         public double TargetY_px { get => _targetY_px; set { _targetY_px = value; onPropertyChanged(); } }
 
-        public event Action<string> MessageRequest; // 사격 안전장치 알림용으로 유지
-        public ICommand FireCommand { get; }
+        // 발사대 및 정렬 선 좌표 프로퍼티
+        private double _launcherX_px;
+        private double _launcherY_px;
+        public double LauncherX_px { get => _launcherX_px; set { _launcherX_px = value; onPropertyChanged(); } }
+        public double LauncherY_px { get => _launcherY_px; set { _launcherY_px = value; onPropertyChanged(); } }
 
-        // 💡 탐색기 제어 커맨드 추가
+        private bool _showAlignLine;
+        public bool ShowAlignLine { get => _showAlignLine; set { _showAlignLine = value; onPropertyChanged(); } }
+
+        private double _alignLineX2;
+        private double _alignLineY2;
+        public double AlignLineX2 { get => _alignLineX2; set { _alignLineX2 = value; onPropertyChanged(); } }
+        public double AlignLineY2 { get => _alignLineY2; set { _alignLineY2 = value; onPropertyChanged(); } }
+
+        private double _lastAlignedAngle = 0; // 정렬 명령 하달 시점의 각도 기억용
+
+        public event Action<string> MessageRequest;
+
+        // 커맨드 정의
+        public ICommand AlignCommand { get; }
+        public ICommand FireCommand { get; }
         public ICommand StartSeekerCommand { get; }
         public ICommand StopSeekerCommand { get; }
-        // 💡 긴급 정지 커맨드 추가
         public ICommand EmergencyStopCommand { get; }
 
-        private string _launcherStatusText = "대기 중";
+        private string _launcherStatusText = "STANDBY";
         public string LauncherStatusText { get => _launcherStatusText; set { _launcherStatusText = value; onPropertyChanged(); } }
 
         private System.Windows.Media.Brush _statusColor = System.Windows.Media.Brushes.Gray;
@@ -55,106 +87,93 @@ namespace SBS_ECS_UI.ViewModels
 
         public MainViewModel()
         {
-            CurrentTarget = new TargetInfo { PosX_mm = 0, PosY_mm = 0, AzimuthDegree = 0 };
-            FireCommand = new RelayCommand(ExecuteFireCommand);
+            // 💡 초기화 시 표적 이름(Name) 할당
+            CurrentTarget = new TargetInfo { Name = "Target_01", PosX_mm = 0, PosY_mm = 0, AzimuthDegree = 0 };
 
-            // 💡 커맨드 연결
+            AlignCommand = new RelayCommand(ExecuteAlignCommand);
+            FireCommand = new RelayCommand(ExecuteFireCommand);
             StartSeekerCommand = new RelayCommand(ExecuteStartSeeker);
             StopSeekerCommand = new RelayCommand(ExecuteStopSeeker);
             EmergencyStopCommand = new RelayCommand(ExecuteEmergencyStop);
 
             _uart = new UartManager("COM3");
+            //_uart = new MockUartManager("COM3");
             _uart.PacketReceivedEvent += OnPacketReceived;
 
             if (_uart.OpenPort()) ConnectionStatus = "연결 성공 (COM3)";
             else ConnectionStatus = "연결 실패 (포트 확인 필요)";
         }
 
-        // 💡 탐색기 시작 패킷 전송 로직
         private void ExecuteStartSeeker(object parameter)
         {
-            // STX(0x02) | 운용명령(0x02) | ETX(0x03)
-            _uart.SendData(new byte[] { 0x02, 0x02, 0x03 });
+            _uart.SendControlCommand(UartManager.SystemCommand.SeekerStart);
         }
 
-        // 💡 탐색기 정지 패킷 전송 로직
         private void ExecuteStopSeeker(object parameter)
         {
-            // STX(0x02) | 정지명령(0x03) | ETX(0x03)
-            _uart.SendData(new byte[] { 0x02, 0x03, 0x03 });
+            _uart.SendControlCommand(UartManager.SystemCommand.SeekerStop);
         }
 
-        // 💡 긴급 정지 패킷 전송 로직 (명령 코드: 0x04)
         private void ExecuteEmergencyStop(object parameter)
         {
-            // 💡 1. 버튼이 눌렸는지 팝업으로 즉시 확인
-            System.Windows.MessageBox.Show("긴급 정지 버튼 클릭됨!");
-            // STX(0x02) | 긴급정지(0x04) | ETX(0x03)
-            _uart.SendData(new byte[] { 0x02, 0x04, 0x03 });
+            _uart.SendControlCommand(UartManager.SystemCommand.EmergencyStop);
+            MessageRequest?.Invoke("긴급 정지 명령이 하달되었습니다.");
         }
-        // 시리얼 통신으로 들어오는 조각난 문자열을 임시로 모아둘 버퍼
-        private string _uartBuffer = "";
+
+        private void ExecuteAlignCommand(object parameter)
+        {
+            _uart.SendControlCommand(UartManager.SystemCommand.LauncherAlign);
+
+            _lastAlignedAngle = CurrentTarget.AzimuthDegree;
+            ShowAlignLine = true;
+            UpdateAlignLine();
+        }
+
+        private void ExecuteFireCommand(object parameter)
+        {
+            if (!IsDoubleSafetyChecked)
+            {
+                MessageRequest?.Invoke("안전 스위치 해제가 필요합니다.");
+                return;
+            }
+
+            _uart.SendControlCommand(UartManager.SystemCommand.LauncherFire);
+        }
 
         private void OnPacketReceived(byte[] packet)
         {
             if (packet == null || packet.Length == 0) return;
 
-            // 1. STM32에서 들어온 바이트 배열을 문자열로 변환
-            string receivedText = System.Text.Encoding.ASCII.GetString(packet);
-            _uartBuffer += receivedText;
+            string line = System.Text.Encoding.ASCII.GetString(packet).Trim();
 
-            // 2. 개행문자(\n)가 들어왔다면 완전한 한 줄의 데이터가 도착한 것
-            if (_uartBuffer.Contains("\n"))
+            System.Windows.Application.Current.Dispatcher.Invoke(() =>
             {
-                // 데이터가 여러 줄 쌓였을 수 있으므로 분리
-                string[] lines = _uartBuffer.Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                string[] parts = line.Split(',');
 
-                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                if (parts.Length >= 4)
                 {
-                    foreach (string line in lines)
+                    if (float.TryParse(parts[0], out float x) &&
+                        float.TryParse(parts[1], out float y) &&
+                        float.TryParse(parts[2], out float angle))
                     {
-                        // "X,Y,방위각,상태" 형태를 콤마(,) 기준으로 자르기
-                        string[] parts = line.Trim().Split(',');
+                        CurrentTarget.PosX_mm = x;
+                        CurrentTarget.PosY_mm = y;
+                        CurrentTarget.AzimuthDegree = angle;
 
-                        if (parts.Length >= 4)
-                        {
-                            if (float.TryParse(parts[0], out float x) &&
-        float.TryParse(parts[1], out float y) &&
-        float.TryParse(parts[2], out float angle) &&
-        int.TryParse(parts[3], out int status)) // 💡 4번째 상태 값 파싱
-                            {
-                                CurrentTarget.PosX_mm = x;
-                                CurrentTarget.PosY_mm = y;
-                                CurrentTarget.AzimuthDegree = angle;
+                        string statusString = parts[3].Trim().ToLower();
 
-                                // 💡 발사대 상태 업데이트 로직 추가
-                                UpdateLauncherStatus(status);
-
-                                UpdateTargetLogic();
-                            }
-                        }
+                        UpdateLauncherStatus(statusString);
+                        UpdateTargetLogic();
                     }
-                });
-
-                // 처리가 끝난 문자열은 버퍼에서 비워주기
-                _uartBuffer = "";
-            }
+                }
+            });
         }
 
         private void UpdateTargetLogic()
         {
-            // 1. 방위각 계산 (주석 처리)
-            // STM32 펌웨어 내부에서 오리지널 좌표 변환 방식으로 이미 정밀하게 계산해서 보내주므로, 
-            // PC UI에서는 중복 연산할 필요 없이 보드의 두뇌를 믿고 그대로 화면에 띄웁니다!
-            // CurrentTarget.AzimuthDegree = _transformer.CalAngle(CurrentTarget.PosX_mm, CurrentTarget.PosY_mm);
-
-            // 2. 거리 계산 및 위험 상태 업데이트
             double distanceMm = Math.Sqrt(Math.Pow(CurrentTarget.PosX_mm, 2) + Math.Pow(CurrentTarget.PosY_mm, 2));
-
-            // 위험 반경 50cm(500mm) 이내 진입 시 경고
             IsDanger = distanceMm < 500.0;
 
-            // 3. 적 목록 및 PPI 좌표 업데이트
             UpdateEnemyList();
             UpdatePixelCoordinates();
         }
@@ -166,21 +185,19 @@ namespace SBS_ECS_UI.ViewModels
 
             if (targetInList == null)
             {
-                // 처음 추가할 때도 방위각을 넣어줍니다.
                 EnemyList.Add(new TargetInfo
                 {
                     Name = targetId,
                     PosX_mm = CurrentTarget.PosX_mm,
                     PosY_mm = CurrentTarget.PosY_mm,
-                    AzimuthDegree = CurrentTarget.AzimuthDegree // 💡 추가
+                    AzimuthDegree = CurrentTarget.AzimuthDegree
                 });
             }
             else
             {
-                // 이미 목록에 있을 때 방위각을 업데이트하는 이 코드가 빠져있었습니다!
                 targetInList.PosX_mm = CurrentTarget.PosX_mm;
                 targetInList.PosY_mm = CurrentTarget.PosY_mm;
-                targetInList.AzimuthDegree = CurrentTarget.AzimuthDegree; // 💡 이 한 줄을 추가하세요!
+                targetInList.AzimuthDegree = CurrentTarget.AzimuthDegree;
             }
         }
 
@@ -188,37 +205,45 @@ namespace SBS_ECS_UI.ViewModels
         {
             TargetX_px = 250 + (CurrentTarget.PosX_mm / 10.0) * PxPerCm;
             TargetY_px = 250 - (CurrentTarget.PosY_mm / 10.0) * PxPerCm;
+
+            LauncherX_px = 250 + (500.0 / 10.0) * PxPerCm;
+            LauncherY_px = 250;
+
+            UpdateAlignLine();
         }
 
-        private void ExecuteFireCommand(object parameter)
+        private void UpdateAlignLine()
         {
-            if (!IsDoubleSafetyChecked)
-            {
-                // 안전장치 미해제 시의 알림은 필수 보안 사항이므로 유지합니다
-                MessageRequest?.Invoke("안전 스위치 해제가 필요합니다.");
-                return;
-            }
-            byte[] firePacket = new byte[] { 0x02, 0x01, 0x05, 0x00, 0x00, 0x03 };
-            _uart.SendData(firePacket);
+            if (!ShowAlignLine) return;
+
+            double rad = _lastAlignedAngle * Math.PI / 180.0;
+
+            AlignLineX2 = LauncherX_px + 500.0 * Math.Cos(rad);
+            AlignLineY2 = LauncherY_px - 500.0 * Math.Sin(rad);
         }
-        // 💡 상태 값에 따른 텍스트 및 색상 매핑 함수
-        private void UpdateLauncherStatus(int statusCode)
+
+        private void UpdateLauncherStatus(string statusString)
         {
-            switch (statusCode)
+            _currentStatus = statusString;
+            onPropertyChanged(nameof(CanAlign));
+            onPropertyChanged(nameof(CanFire));
+
+            switch (statusString)
             {
-                case 0:
-                    LauncherStatusText = "IDLE";
+                case "stanby":
+                case "standby":
+                    LauncherStatusText = "STANDBY";
                     StatusColor = System.Windows.Media.Brushes.Gray;
                     break;
-                case 1: // LTL_STATUS_ALIGN_DONE
-                    LauncherStatusText = "READY";
+                case "align":
+                    LauncherStatusText = "ALIGN";
                     StatusColor = System.Windows.Media.Brushes.LimeGreen;
                     break;
-                case 2: // LTL_STATUS_FIRE_DONE
-                    LauncherStatusText = "FIRE";
+                case "launch":
+                    LauncherStatusText = "LAUNCH";
                     StatusColor = System.Windows.Media.Brushes.DeepSkyBlue;
                     break;
-                case 3: // LTL_STATUS_ERROR
+                case "error":
                     LauncherStatusText = "ERROR";
                     StatusColor = System.Windows.Media.Brushes.Red;
                     break;

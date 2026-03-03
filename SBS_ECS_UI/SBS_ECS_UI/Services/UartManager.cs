@@ -1,10 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO.Ports; // 시리얼 통신을 위한 네임스페이스
+using System.IO.Ports;
+using System.Linq;
 using System.Windows;
 
 namespace SBS_ECS_UI.Services
 {
+    /// <summary>
+    /// STM32 보드와 UART 통신을 관리하는 클래스 (SDD 4.1.1.3.2)
+    /// </summary>
     internal class UartManager
     {
         // SDD 4.1.1.3.2 설계 변수
@@ -12,6 +16,22 @@ namespace SBS_ECS_UI.Services
         private string _portName;       // 연결된 COM 포트 번호
         private int _baudRate = 115200; // STM32와 동일한 통신 속도
         private List<byte> _rcvBuffer = new List<byte>(); // 수신 데이터 임시 저장 버퍼
+
+        // 제어 명령 상수 (STX/ETX)
+        private const byte STX = 0x02;
+        private const byte ETX = 0x03;
+
+        /// <summary>
+        /// SDD에 정의된 시스템 제어 명령 코드 열거형
+        /// </summary>
+        public enum SystemCommand : byte
+        {
+            LauncherAlign = 0x00,     // 발사대 정렬 명령 (LTL_CMD_ALIGN)
+            LauncherFire = 0x01,      // 발사대 사격 명령 (LTL_CMD_FIRE)
+            SeekerStart = 0x02,       // 탐색기 운용 시작 (DET_CMD_STANDBY)
+            SeekerStop = 0x03,        // 탐색기 운용 중지 (DET_CMD_RESET)
+            EmergencyStop = 0x04      // 시스템 긴급 정지
+        }
 
         // MVVM 패턴에서 ViewModel과 소통하기 위한 이벤트
         public event Action<byte[]> PacketReceivedEvent;
@@ -30,7 +50,7 @@ namespace SBS_ECS_UI.Services
             {
                 if (_serialPort != null && _serialPort.IsOpen) return true;
 
-                // 객체 생성 및 파라미터 설정
+                // 객체 생성 및 파라미터 설정 (8-N-1 설정)
                 _serialPort = new SerialPort(_portName, _baudRate, Parity.None, 8, StopBits.One);
 
                 // 데이터 수신 이벤트 핸들러 등록
@@ -41,7 +61,6 @@ namespace SBS_ECS_UI.Services
             }
             catch (Exception ex)
             {
-                // 실무에서는 로그 매니저를 통해 기록하거나 ViewModel에 에러 전달
                 MessageBox.Show($"UART 연결 실패 ({_portName}): {ex.Message}");
                 return false;
             }
@@ -67,7 +86,7 @@ namespace SBS_ECS_UI.Services
             {
                 if (_serialPort != null && _serialPort.IsOpen)
                 {
-                    _serialPort.Write(data, 0, data.Length); // 하드웨어 버퍼에 기록
+                    _serialPort.Write(data, 0, data.Length);
                 }
             }
             catch (Exception ex)
@@ -77,40 +96,54 @@ namespace SBS_ECS_UI.Services
         }
 
         /// <summary>
+        /// 발사대 및 탐색기 제어 명령 전송 메서드
+        /// [STX(0x02)] [Command] [ETX(0x03)] 규격 적용
+        /// </summary>
+        public void SendControlCommand(SystemCommand cmd)
+        {
+            byte[] packet = new byte[] { STX, (byte)cmd, ETX };
+            SendData(packet);
+        }
+
+        /// <summary>
         /// UART 수신 이벤트 핸들러 (SDD 4.1.1.3.2.3)
         /// </summary>
         private void OnDataReceived(object sender, SerialDataReceivedEventArgs e)
         {
             if (_serialPort == null || !_serialPort.IsOpen) return;
 
-            int bytesToRead = _serialPort.BytesToRead;
-            byte[] buffer = new byte[bytesToRead];
+            try
+            {
+                int bytesToRead = _serialPort.BytesToRead;
+                byte[] buffer = new byte[bytesToRead];
 
-            // 수신 버퍼에서 데이터를 읽어 임시 배열에 저장
-            _serialPort.Read(buffer, 0, bytesToRead);
+                _serialPort.Read(buffer, 0, bytesToRead);
+                _rcvBuffer.AddRange(buffer);
 
-            // 읽어온 데이터를 리스트 버퍼에 추가
-            _rcvBuffer.AddRange(buffer);
-
-            // 패킷 분석 호출 (SDD 4.1.1.3.2.4)
-            ParseUart();
+                // 패킷 분석 호출
+                ParseUart();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"수신 에러: {ex.Message}");
+            }
         }
 
         /// <summary>
         /// 수신 데이터 파싱 (SDD 4.1.1.3.2.4)
-        /// STM32에서 정의한 6바이트 패킷 규격에 맞춰 분리
         /// </summary>
         private void ParseUart()
         {
-            // 예시: STM32에서 6바이트 단위로 데이터를 보낼 경우
-            while (_rcvBuffer.Count >= 6)
+            while (_rcvBuffer.Contains(0x0A))
             {
-                // 6바이트 패킷 추출
-                byte[] packet = _rcvBuffer.GetRange(0, 6).ToArray();
-                _rcvBuffer.RemoveRange(0, 6);
+                int lfIndex = _rcvBuffer.IndexOf(0x0A);
+                byte[] packet = _rcvBuffer.Take(lfIndex + 1).ToArray();
+                _rcvBuffer.RemoveRange(0, lfIndex + 1);
 
-                // 유효한 패킷일 경우 ViewModel로 전달
-                PacketReceivedEvent?.Invoke(packet);
+                if (packet.Length > 0)
+                {
+                    PacketReceivedEvent?.Invoke(packet);
+                }
             }
         }
     }
