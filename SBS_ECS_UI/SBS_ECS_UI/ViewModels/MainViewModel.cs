@@ -2,8 +2,8 @@
 using SBS_ECS_UI.Services;
 using System;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Linq;
+using System.Windows;
 using System.Windows.Input;
 
 namespace SBS_ECS_UI.ViewModels
@@ -11,17 +11,20 @@ namespace SBS_ECS_UI.ViewModels
     public class MainViewModel : ViewModelBase
     {
         private UartManager _uart;
+        //private MockUartManager _uart;
         private CoordinateTransformer _transformer = new CoordinateTransformer();
 
         // 실시간 표적 정보
         private TargetInfo _currentTarget;
         public TargetInfo CurrentTarget { get => _currentTarget; set { _currentTarget = value; onPropertyChanged(); } }
-
         public ObservableCollection<TargetInfo> EnemyList { get; } = new ObservableCollection<TargetInfo>();
 
-        // 💡 1. 초기 상태 변수를 "0"으로 설정
-        private string _currentStatus = "0";
+        // 💡 시스템 로그 및 자동 팝업 관리
+        public ObservableCollection<string> SystemLogs { get; } = new ObservableCollection<string>();
+        private LogWindow _logWindow;
+        private bool _isFirstDataReceived = false;
 
+        private string _currentStatus = "0";
         private bool _isDoubleSafetyChecked;
         public bool IsDoubleSafetyChecked
         {
@@ -29,11 +32,9 @@ namespace SBS_ECS_UI.ViewModels
             set { _isDoubleSafetyChecked = value; onPropertyChanged(); onPropertyChanged(nameof(CanFire)); }
         }
 
-        // 💡 버튼 활성화: 1(Standby) 또는 2(Align)일 때만 정렬 가능
         public bool CanAlign => _currentStatus == "1" || _currentStatus == "2" ||
                                 _currentStatus == "standby" || _currentStatus == "align";
 
-        // 💡 사격 승인: 2(Align) 상태이면서 안전장치가 해제되어야 함
         public bool CanFire => (_currentStatus == "2" || _currentStatus == "align") && IsDoubleSafetyChecked;
 
         private bool _isDanger;
@@ -45,41 +46,27 @@ namespace SBS_ECS_UI.ViewModels
         private double _pxPerCm = 1.0;
         public double PxPerCm { get => _pxPerCm; set { _pxPerCm = value; onPropertyChanged(); UpdatePixelCoordinates(); } }
 
-        private double _targetX_px;
-        private double _targetY_px;
-        public double TargetX_px { get => _targetX_px; set { _targetX_px = value; onPropertyChanged(); } }
-        public double TargetY_px { get => _targetY_px; set { _targetY_px = value; onPropertyChanged(); } }
-
-        private double _launcherX_px;
-        private double _launcherY_px;
-        public double LauncherX_px { get => _launcherX_px; set { _launcherX_px = value; onPropertyChanged(); } }
-        public double LauncherY_px { get => _launcherY_px; set { _launcherY_px = value; onPropertyChanged(); } }
-
-        private bool _showAlignLine;
-        public bool ShowAlignLine { get => _showAlignLine; set { _showAlignLine = value; onPropertyChanged(); } }
-
-        private double _alignLineX2;
-        private double _alignLineY2;
-        public double AlignLineX2 { get => _alignLineX2; set { _alignLineX2 = value; onPropertyChanged(); } }
-        public double AlignLineY2 { get => _alignLineY2; set { _alignLineY2 = value; onPropertyChanged(); } }
-
+        // 레이더 좌표용 변수
+        public double TargetX_px { get; set; }
+        public double TargetY_px { get; set; }
+        public double LauncherX_px { get; set; }
+        public double LauncherY_px { get; set; }
+        public bool ShowAlignLine { get; set; }
+        public double AlignLineX2 { get; set; }
+        public double AlignLineY2 { get; set; }
         private double _lastAlignedAngle = 0;
 
         public event Action<string> MessageRequest;
 
+        // 커맨드 객체
         public ICommand AlignCommand { get; }
         public ICommand FireCommand { get; }
         public ICommand StartSeekerCommand { get; }
         public ICommand StopSeekerCommand { get; }
         public ICommand EmergencyStopCommand { get; }
 
-        // 💡 2. 초기 텍스트를 INITIALIZING으로 설정
-        private string _launcherStatusText = "INITIALIZING";
-        public string LauncherStatusText { get => _launcherStatusText; set { _launcherStatusText = value; onPropertyChanged(); } }
-
-        // 💡 3. 초기 색상을 Orange로 설정
-        private System.Windows.Media.Brush _statusColor = System.Windows.Media.Brushes.Orange;
-        public System.Windows.Media.Brush StatusColor { get => _statusColor; set { _statusColor = value; onPropertyChanged(); } }
+        public string LauncherStatusText { get; set; } = "INITIALIZING";
+        public System.Windows.Media.Brush StatusColor { get; set; } = System.Windows.Media.Brushes.Orange;
 
         public MainViewModel()
         {
@@ -91,7 +78,8 @@ namespace SBS_ECS_UI.ViewModels
             StopSeekerCommand = new RelayCommand(ExecuteStopSeeker);
             EmergencyStopCommand = new RelayCommand(ExecuteEmergencyStop);
 
-            _uart = new UartManager("COM3"); // 실제 포트 번호 확인 필요
+            _uart = new UartManager("COM3");
+            //_uart = new MockUartManager("COM3");
             _uart.PacketReceivedEvent += OnPacketReceived;
 
             if (_uart.OpenPort()) ConnectionStatus = "연결 성공 (COM3)";
@@ -112,6 +100,7 @@ namespace SBS_ECS_UI.ViewModels
             _uart.SendControlCommand(UartManager.SystemCommand.LauncherAlign);
             _lastAlignedAngle = CurrentTarget.AzimuthDegree;
             ShowAlignLine = true;
+            onPropertyChanged(nameof(ShowAlignLine));
             UpdateAlignLine();
         }
 
@@ -126,10 +115,30 @@ namespace SBS_ECS_UI.ViewModels
             if (packet == null || packet.Length == 0) return;
             string line = System.Text.Encoding.ASCII.GetString(packet).Trim();
 
-            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+            // 💡 UI 업데이트 및 로그 창 제어
+            Application.Current.Dispatcher.Invoke(() =>
             {
+                // 1. 원시 로그 기록
+                SystemLogs.Insert(0, $"[{DateTime.Now:HH:mm:ss}] RX: {line}");
+                if (SystemLogs.Count > 100) SystemLogs.RemoveAt(100);
+
+                // 2. 💡 데이터가 처음 들어오면 자동으로 로그 창 팝업
+                if (!_isFirstDataReceived)
+                {
+                    _isFirstDataReceived = true;
+                    if (_logWindow == null)
+                    {
+                        _logWindow = new LogWindow(this);
+                        _logWindow.Show();
+                    }
+                    else
+                    {
+                        _logWindow.Visibility = Visibility.Visible;
+                    }
+                }
+
+                // 3. 기존 제어 데이터 파싱
                 string[] parts = line.Split(',');
-                // 💡 STM32 패킷 규격: X, Y, Angle, Status (총 4개 필드)
                 if (parts.Length >= 4)
                 {
                     if (float.TryParse(parts[0], out float x) &&
@@ -148,6 +157,7 @@ namespace SBS_ECS_UI.ViewModels
             });
         }
 
+        // ... 이하 기존 좌표 업데이트 로직 생략 (UpdateTargetLogic, UpdatePixelCoordinates 등)
         private void UpdateTargetLogic()
         {
             double distanceMm = Math.Sqrt(Math.Pow(CurrentTarget.PosX_mm, 2) + Math.Pow(CurrentTarget.PosY_mm, 2));
@@ -170,6 +180,10 @@ namespace SBS_ECS_UI.ViewModels
             TargetY_px = 250 - (CurrentTarget.PosY_mm / 10.0) * PxPerCm;
             LauncherX_px = 250 + (500.0 / 10.0) * PxPerCm;
             LauncherY_px = 250;
+            onPropertyChanged(nameof(TargetX_px));
+            onPropertyChanged(nameof(TargetY_px));
+            onPropertyChanged(nameof(LauncherX_px));
+            onPropertyChanged(nameof(LauncherY_px));
             UpdateAlignLine();
         }
 
@@ -180,6 +194,8 @@ namespace SBS_ECS_UI.ViewModels
             double lineLength = 300.0;
             AlignLineX2 = LauncherX_px + lineLength * Math.Cos(rad);
             AlignLineY2 = LauncherY_px - lineLength * Math.Sin(rad);
+            onPropertyChanged(nameof(AlignLineX2));
+            onPropertyChanged(nameof(AlignLineY2));
         }
 
         private void UpdateLauncherStatus(string statusString)
@@ -190,35 +206,15 @@ namespace SBS_ECS_UI.ViewModels
 
             switch (statusString)
             {
-                case "0":
-                    LauncherStatusText = "INITIALIZING";
-                    StatusColor = System.Windows.Media.Brushes.Orange;
-                    break;
-                case "1":
-                case "standby":
-                    LauncherStatusText = "STANDBY";
-                    StatusColor = System.Windows.Media.Brushes.Gray;
-                    break;
-                case "2":
-                case "align":
-                    LauncherStatusText = "ALIGNING";
-                    StatusColor = System.Windows.Media.Brushes.LimeGreen;
-                    break;
-                case "3":
-                case "launch":
-                    LauncherStatusText = "LAUNCH";
-                    StatusColor = System.Windows.Media.Brushes.DeepSkyBlue;
-                    break;
-                case "4":
-                case "error":
-                    LauncherStatusText = "ERROR";
-                    StatusColor = System.Windows.Media.Brushes.Red;
-                    break;
-                default:
-                    LauncherStatusText = "UNKNOWN (" + statusString + ")";
-                    StatusColor = System.Windows.Media.Brushes.Purple;
-                    break;
+                case "0": LauncherStatusText = "INITIALIZING"; StatusColor = System.Windows.Media.Brushes.Orange; break;
+                case "1": case "standby": LauncherStatusText = "STANDBY"; StatusColor = System.Windows.Media.Brushes.Gray; break;
+                case "2": case "align": LauncherStatusText = "ALIGN"; StatusColor = System.Windows.Media.Brushes.LimeGreen; break;
+                case "3": case "launch": LauncherStatusText = "LAUNCH"; StatusColor = System.Windows.Media.Brushes.DeepSkyBlue; break;
+                case "4": case "error": LauncherStatusText = "ERROR"; StatusColor = System.Windows.Media.Brushes.Red; break;
+                default: LauncherStatusText = "UNKNOWN (" + statusString + ")"; StatusColor = System.Windows.Media.Brushes.Purple; break;
             }
+            onPropertyChanged(nameof(LauncherStatusText));
+            onPropertyChanged(nameof(StatusColor));
         }
     }
 }
