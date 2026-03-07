@@ -26,5 +26,6 @@ namespace SBS_ECS_UI
                 vm.MessageRequest += (msg) => MessageBox.Show(this, msg, "시스템 알림");
             }
         }
+
     }
 }

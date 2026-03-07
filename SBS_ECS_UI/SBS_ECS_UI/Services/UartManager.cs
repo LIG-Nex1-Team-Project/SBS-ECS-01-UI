@@ -101,7 +101,9 @@ namespace SBS_ECS_UI.Services
         /// </summary>
         public void SendControlCommand(SystemCommand cmd)
         {
-            byte[] packet = new byte[] { STX, (byte)cmd, ETX };
+            //byte[] packet = new byte[] { STX, (byte)cmd, ETX };
+            byte[] packet = new byte[] { (byte)cmd };
+
             SendData(packet);
         }
 
