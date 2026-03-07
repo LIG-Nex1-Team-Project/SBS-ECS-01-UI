@@ -5,8 +5,8 @@ namespace SBS_ECS_UI.Models
     public class CoordinateTransformer
     {
         // ECS가 사전에 알고 있는 발사대의 물리적 위치 (탐색기 원점 기준)
-        // 예시: 발사대가 탐색기 우측으로 500mm 떨어진 곳에 배치되어 있다고 가정
-        public float LauncherPosX_mm { get; set; } = 500.0f;
+        // 예시: 발사대가 탐색기 우측으로 250mm 떨어진 곳에 배치되어 있다고 가정
+        public float LauncherPosX_mm { get; set; } = 250.0f;
         public float LauncherPosY_mm { get; set; } = 0.0f;
 
         /// <summary>

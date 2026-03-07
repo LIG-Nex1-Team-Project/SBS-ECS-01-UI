@@ -78,7 +78,7 @@ namespace SBS_ECS_UI.ViewModels
             StopSeekerCommand = new RelayCommand(ExecuteStopSeeker);
             EmergencyStopCommand = new RelayCommand(ExecuteEmergencyStop);
 
-            _uart = new UartManager("COM3");
+            _uart = new UartManager("COM8");
             //_uart = new MockUartManager("COM3");
             _uart.PacketReceivedEvent += OnPacketReceived;
 
@@ -178,7 +178,7 @@ namespace SBS_ECS_UI.ViewModels
         {
             TargetX_px = 250 + (CurrentTarget.PosX_mm / 10.0) * PxPerCm;
             TargetY_px = 250 - (CurrentTarget.PosY_mm / 10.0) * PxPerCm;
-            LauncherX_px = 250 + (500.0 / 10.0) * PxPerCm;
+            LauncherX_px = 250 + (250.0 / 10.0) * PxPerCm;
             LauncherY_px = 250;
             onPropertyChanged(nameof(TargetX_px));
             onPropertyChanged(nameof(TargetY_px));
@@ -190,10 +190,19 @@ namespace SBS_ECS_UI.ViewModels
         private void UpdateAlignLine()
         {
             if (!ShowAlignLine) return;
-            double rad = _lastAlignedAngle * Math.PI / 180.0;
-            double lineLength = 300.0;
-            AlignLineX2 = LauncherX_px + lineLength * Math.Cos(rad);
-            AlignLineY2 = LauncherY_px - lineLength * Math.Sin(rad);
+
+            // 💡 수정: 정렬 선의 끝점을 단순히 현재 타겟의 위치로 꽂아버리는 것이 가장 정확합니다.
+            // 만약 선을 길게 뻗게 하고 싶다면 아래 주석된 삼각함수 보정식을 사용하세요.
+            AlignLineX2 = TargetX_px;
+            AlignLineY2 = TargetY_px;
+
+             // 서보 각도 기반으로 선을 긋고 싶을 때의 올바른 수식 (90도 정면 기준)
+            //double rad = (90 - _lastAlignedAngle) * Math.PI / 180.0; 
+            //double lineLength = 500.0;
+            //AlignLineX2 = LauncherX_px + lineLength * Math.Sin(rad);
+            //AlignLineY2 = LauncherY_px - lineLength * Math.Cos(rad);
+            
+
             onPropertyChanged(nameof(AlignLineX2));
             onPropertyChanged(nameof(AlignLineY2));
         }
